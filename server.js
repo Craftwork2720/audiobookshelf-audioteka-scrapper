@@ -349,8 +349,11 @@ class AudiotekaProvider {
       }
 
       // Add Audioteka link if enabled
-      if (addAudiotekaLinkToDescription && description) {
-        description = `<a href="${match.url}">Audioteka link</a>\n\n${description}`;
+      if (addAudiotekaLinkToDescription) {
+        const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
+        description = description ? 
+          `${audioTekaLink}\n\n${description}` : 
+          audioTekaLink;
       }
 
       // Extract cover
