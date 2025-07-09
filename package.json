@@ -1,7 +1,7 @@
 {
-  "name": "audioteka-provider",
-  "version": "1.1.0",
-  "description": "Enhanced API provider for Audioteka books",
+  "name": "audiobookshelf-audioteka-scrapper",
+  "version": "1.2.0",
+  "description": "audioteka data scraping for audiobookshelf",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
