@@ -1,5 +1,5 @@
 
-# audiobookshelf-lubimyczytac-scrapper
+# audiobookshelf-audioteka-scrapper
 
 A simple web scrapper designed to enrich your [Audiobookshelf](https://www.audiobookshelf.org/) library with metadata from Audioteka (descriptions, authors, cover images, and more).
 
