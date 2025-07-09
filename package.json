@@ -1,14 +1,14 @@
 {
   "name": "audiobookshelf-audioteka-scrapper",
-  "version": "1.0.0",
-  "description": "Audioteka data scraping for audiobookshelf",
+  "version": "1.2.0",
+  "description": "Audioteka data scraping provider for AudioBookshelf",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
   },
   "dependencies": {
     "axios": "^1.7.2",
-    "cheerio": "^1.0.0-rc.12",
+    "cheerio": "^1.0.0-rc.12", 
     "cors": "^2.8.5",
     "express": "^4.19.2"
   },
