@@ -1,5 +1,5 @@
 services:
-  audiobookshelf-lubimyczytac-scrapper:
+  audiobookshelf-audioteka-scrapper:
     image: ghcr.io/craftwork2720/audiobookshelf-audioteka:latest
     ports:
       - "3001:3001"
