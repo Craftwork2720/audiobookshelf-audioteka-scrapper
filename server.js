@@ -2,6 +2,8 @@ const express = require('express');
 const axios = require('axios');
 const cheerio = require('cheerio');
 const cors = require('cors');
+const { JSDOM } = require('jsdom');
+const { Readability } = require('@mozilla/readability');
 
 function cleanCoverUrl(url) {
   if (url) {
@@ -41,6 +43,45 @@ function parseDuration(durationStr) {
   return durationInMinutes;
 }
 
+function normalizeString(str) {
+  return str
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^\w\s]/g, '');
+}
+
+function calculateMatchScore(book, query, author) {
+  let score = 0;
+  const normQuery = normalizeString(query);
+  const normAuthor = author ? normalizeString(author) : '';
+  const normTitle = normalizeString(book.title);
+  const normBookAuthors = book.authors.map(a => normalizeString(a)).join(' ');
+
+  // Exact match in title
+  if (normTitle.includes(normQuery)) score += 50;
+  
+  // Partial match in title
+  const titleWords = normTitle.split(/\s+/);
+  const queryWords = normQuery.split(/\s+/);
+  const titleMatchPercentage = queryWords.filter(word => titleWords.includes(word)).length / queryWords.length;
+  score += titleMatchPercentage * 30;
+
+  // Author match
+  if (normAuthor && normBookAuthors.includes(normAuthor)) {
+    score += 40;
+  } else if (author) {
+    // Penalty if author doesn't match
+    score -= 20;
+  }
+
+  // Rating boost
+  if (book.rating >= 4.5) score += 10;
+  else if (book.rating >= 4.0) score += 5;
+
+  return score;
+}
+
 const app = express();
 const port = process.env.PORT || 3001;
 
@@ -56,8 +97,9 @@ app.use((req, res, next) => {
   next();
 });
 
-const language = process.env.LANGUAGE || 'pl';  // Default to Polish if not specified
+const language = process.env.LANGUAGE || 'pl';
 const addAudiotekaLinkToDescription = (process.env.ADD_AUDIOTEKA_LINK_TO_DESCRIPTION || 'true').toLowerCase() === 'true';
+const MAX_RESULTS = parseInt(process.env.MAX_RESULTS) || 20;
 
 class AudiotekaProvider {
   constructor() {
@@ -67,10 +109,10 @@ class AudiotekaProvider {
     this.searchUrl = language === 'cz' ? 'https://audioteka.com/cz/vyhledavani' : 'https://audioteka.com/pl/szukaj';
   }
 
-  async searchBooks(query, author = '') {
+  async searchBooks(query, author = '', page = 1) {
     try {
-      console.log(`Searching for: "${query}" by "${author}"`);
-      const searchUrl = `${this.searchUrl}?phrase=${encodeURIComponent(query)}`;
+      console.log(`Searching for: "${query}" by "${author}", page ${page}`);
+      const searchUrl = `${this.searchUrl}?phrase=${encodeURIComponent(query)}&page=${page}`;
       
       const response = await axios.get(searchUrl, {
         headers: {
@@ -114,11 +156,17 @@ class AudiotekaProvider {
         }
       });
 
-      const fullMetadata = await Promise.all(matches.map(match => this.getFullMetadata(match)));
-      return { matches: fullMetadata };
+      // Check if there are more pages
+      let hasMore = false;
+      if (matches.length > 0) {
+        const nextPageLink = $('a[aria-label="Next"]');
+        hasMore = nextPageLink.length > 0;
+      }
+
+      return { matches, hasMore };
     } catch (error) {
       console.error('Error searching books:', error.message, error.stack);
-      return { matches: [] };
+      return { matches: [], hasMore: false };
     }
   }
 
@@ -164,22 +212,26 @@ class AudiotekaProvider {
       const ratingText = $('.star-icon_label__wbNAx').text().trim();
       const rating = ratingText ? parseFloat(ratingText.replace(',', '.')) : null;
       
-      // Get description with HTML
-      const descriptionHtml = $('.description_description__6gcfq').html();
-      
-      // Basic sanitization
-      let sanitizedDescription = '';
-      if (descriptionHtml) {
-        sanitizedDescription = descriptionHtml
-          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-          .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+      // Get description using Readability for better content extraction
+      let description = '';
+      try {
+        const dom = new JSDOM(response.data);
+        const article = new Readability(dom.window.document).parse();
+        if (article && article.textContent) {
+          description = article.textContent.substring(0, 1000) + '...';
+        }
+      } catch (e) {
+        console.warn('Failed to extract description with Readability, using fallback');
+        const descriptionHtml = $('.description_description__6gcfq').html();
+        if (descriptionHtml) {
+          description = descriptionHtml
+            .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+            .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+        }
       }
 
-      let description = sanitizedDescription;
       if (addAudiotekaLinkToDescription) {
-        const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
-        description = `${audioTekaLink}<br><br>${sanitizedDescription}`;
-        console.log(`Audioteka link will be added to the description for ${match.title}`);
+        description = `[Audioteka link](${match.url})\n\n${description}`;
       }
 
       // Get main cover image and clean the URL
@@ -188,6 +240,13 @@ class AudiotekaProvider {
       const languages = language === 'cz' 
         ? ['czech'] 
         : ['polish'];
+
+      // Get published year if available
+      let publishedYear;
+      const yearMatch = $('dt:contains("Rok vydání"), dt:contains("Rok wydania")').next('dd').text().trim();
+      if (yearMatch) {
+        publishedYear = parseInt(yearMatch, 10);
+      }
 
       const fullMetadata = {
         ...match,
@@ -201,7 +260,8 @@ class AudiotekaProvider {
         series: [],
         tags: series,
         rating,
-        languages, 
+        languages,
+        publishedDate: publishedYear ? `${publishedYear}-01-01` : undefined,
         identifiers: {
           audioteka: match.id,
         },
@@ -222,17 +282,43 @@ app.get('/search', async (req, res) => {
   try {
     console.log('Received search request:', req.query);
     const query = req.query.query;
-    const author = req.query.author;
+    const author = req.query.author || '';
+    const page = parseInt(req.query.page) || 1;
 
     if (!query) {
       return res.status(400).json({ error: 'Query parameter is required' });
     }
 
-    const results = await provider.searchBooks(query, author);
-    
-    // Format the response according to the OpenAPI specification
+    // Search across multiple pages
+    let allMatches = [];
+    let currentPage = page;
+    let hasMore = true;
+    let pageCount = 0;
+    const maxPages = 3; // Max pages to fetch to prevent too many requests
+
+    while (hasMore && allMatches.length < MAX_RESULTS && pageCount < maxPages) {
+      const { matches, hasMore: more } = await provider.searchBooks(query, author, currentPage);
+      allMatches = [...allMatches, ...matches];
+      hasMore = more;
+      currentPage++;
+      pageCount++;
+    }
+
+    // Score and sort results
+    const scoredMatches = allMatches.map(book => ({
+      ...book,
+      score: calculateMatchScore(book, query, author)
+    }));
+
+    scoredMatches.sort((a, b) => b.score - a.score);
+
+    // Get full metadata for top results
+    const topMatches = scoredMatches.slice(0, MAX_RESULTS);
+    const fullMetadata = await Promise.all(topMatches.map(match => provider.getFullMetadata(match)));
+
+    // Format the response
     const formattedResults = {
-      matches: results.matches.map(book => ({
+      matches: fullMetadata.map(book => ({
         title: book.title,
         subtitle: book.subtitle || undefined,
         author: book.authors.join(', '),
@@ -250,11 +336,12 @@ app.get('/search', async (req, res) => {
           sequence: undefined
         })) : undefined,
         language: book.languages && book.languages.length > 0 ? book.languages[0] : undefined,
-        duration: book.duration
+        duration: book.duration,
+        rating: book.rating
       }))
     };
 
-    console.log('Sending response:', JSON.stringify(formattedResults, null, 2));
+    console.log(`Sending ${formattedResults.matches.length} results`);
     res.json(formattedResults);
   } catch (error) {
     console.error('Search error:', error);

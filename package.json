@@ -1,7 +1,7 @@
 {
-  "name": "audiobookshelf-audioteka-scrapper",
-  "version": "1.0.0",
-  "description": "Audioteka data scraping for audiobookshelf",
+  "name": "audioteka-provider",
+  "version": "1.1.0",
+  "description": "Enhanced API provider for Audioteka books",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"
@@ -10,7 +10,9 @@
     "axios": "^1.7.2",
     "cheerio": "^1.0.0-rc.12",
     "cors": "^2.8.5",
-    "express": "^4.19.2"
+    "express": "^4.19.2",
+    "jsdom": "^24.0.0",
+    "@mozilla/readability": "^0.5.0"
   },
   "engines": {
     "node": ">=18.0.0"

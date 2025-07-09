@@ -5,6 +5,7 @@ services:
       - "3001:3001"
     environment:
       - PORT=3001
-      - LANGUAGE=pl  # Można zmienić na 'cz' dla wersji czeskiej
+      - LANGUAGE=pl
+      - MAX_RESULTS=15
       - ADD_AUDIOTEKA_LINK_TO_DESCRIPTION=true
     restart: unless-stopped
