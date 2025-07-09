@@ -1,0 +1,10 @@
+services:
+  audioteka-provider:
+    build: .
+    ports:
+      - "3001:3001"
+    environment:
+      - PORT=3001
+      - LANGUAGE=pl  # Można zmienić na 'cz' dla wersji czeskiej
+      - ADD_AUDIOTEKA_LINK_TO_DESCRIPTION=true
+    restart: unless-stopped

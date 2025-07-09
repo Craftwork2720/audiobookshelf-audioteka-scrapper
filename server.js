@@ -16,42 +16,27 @@ function parseDuration(durationStr) {
   let hours = 0;
   let minutes = 0;
 
-  // Use the regex provided by the user, REMOVED 'g' and 'm' flags
   const durationRegex = /^(?:(\d+)\s+[^\d\s]+)?\s*(?:(\d+)\s+[^\d\s]+)$/; 
-  // No need to reset lastIndex without the 'g' flag
   const matches = durationStr.match(durationRegex);
 
-  // Check if the regex matched successfully
-  // Without 'g', matches will be null if no match, or an array like:
-  // [fullMatch, captureGroup1, captureGroup2, ...]
   if (matches) { 
-    // matches[1] is the hours capture group (optional)
-    // matches[2] is the minutes capture group (mandatory part of the pattern)
-    
-    if (matches[1]) { // Check if hours group was captured
+    if (matches[1]) {
       hours = parseInt(matches[1], 10);
     }
-    // matches[2] should exist if matches is not null, based on the regex structure
     if (matches[2]) { 
       minutes = parseInt(matches[2], 10);
     }
   } else {
-      // Log if the regex failed to match
       if (durationStr.trim()) {
         console.warn(`Could not parse duration string using provided regex: "${durationStr}"`);
       }
-      // Consider if a fallback or different handling is needed for strings
-      // that don't match (e.g., only hours "1 hodina")
-      return undefined; // Return undefined if parsing fails
+      return undefined;
   }
 
-  // Ensure we have valid numbers, default to 0 if parseInt resulted in NaN
   if (isNaN(hours)) hours = 0;
   if (isNaN(minutes)) minutes = 0;
 
-  // Return total duration in minutes
   const durationInMinutes = (hours * 60) + minutes;
-  // Keep the log to confirm output
   console.log(`Parsed duration in minutes for "${durationStr}": ${durationInMinutes}`);
   return durationInMinutes;
 }
@@ -143,66 +128,56 @@ class AudiotekaProvider {
       const response = await axios.get(match.url);
       const $ = cheerio.load(response.data);
 
-      // Get narrator from the "Głosy" row in the details table
+      // Get narrator from the "Głosy" section using new selector
       const narrators = language === 'cz' 
-      ? $('tr:contains("Interpret") td:last-child a')
-        .map((i, el) => $(el).text().trim())
-        .get()
-        .join(', ')
-      : $('tr:contains("Głosy") td:last-child a')
-        .map((i, el) => $(el).text().trim())
-        .get()
-        .join(', ');
-  
-      // Get duration from the "Długość"/"Délka" row - target the TD directly
-      const durationStr = language === 'cz'
-        ? $('tr:contains("Délka") td:last-child').text().trim() // Get text directly from the TD
-        : $('tr:contains("Długość") td:last-child').text().trim(); // Get text directly from the TD
+        ? $('dt:contains("Interpret")').next('dd').find('a').map((i, el) => $(el).text().trim()).get().join(', ')
+        : $('dt:contains("Głosy")').next('dd').find('a').map((i, el) => $(el).text().trim()).get().join(', ');
 
-      // Add logging to see the extracted string
+      // Get duration from the "Długość" section using new selector
+      const durationStr = language === 'cz'
+        ? $('dt:contains("Délka")').next('dd').text().trim()
+        : $('dt:contains("Długość")').next('dd').text().trim();
+
       console.log(`Extracted duration string for ${match.title}: "${durationStr}"`); 
 
-      const durationInMinutes = parseDuration(durationStr); // Function now returns minutes
+      const durationInMinutes = parseDuration(durationStr);
 
-      // Get publisher from the "Wydawca" row
+      // Get publisher from the "Wydawca" section using new selector
       const publisher = language === 'cz'  
-        ? $('tr:contains("Vydavatel") td:last-child a').text().trim()
-        : $('tr:contains("Wydawca") td:last-child a').text().trim();
+        ? $('dt:contains("Vydavatel")').next('dd').find('a').first().text().trim()
+        : $('dt:contains("Wydawca")').next('dd').find('a').first().text().trim();
 
-      // Get type from the "Typ" row
-      const type = language === 'cz' 
-        ? $('tr:contains("Typ") td:last-child').text().trim()
-        : $('tr:contains("Typ") td:last-child').text().trim()
+      // Get type using new selector
+      const type = $('dt:contains("Typ")').next('dd').text().trim();
 
-      // Get categories/genres
+      // Get categories/genres using new selector
       const genres = language === 'cz'
-        ? $('tr:contains("Kategorie") td:last-child a')
-            .map((i, el) => $(el).text().trim())
-            .get(): $('tr:contains("Kategoria") td:last-child a')
-            .map((i, el) => $(el).text().trim())
-            .get();
+        ? $('dt:contains("Kategorie")').next('dd').find('a').map((i, el) => $(el).text().trim()).get()
+        : $('dt:contains("Kategoria")').next('dd').find('a').map((i, el) => $(el).text().trim()).get();
 
       // Get series information
       const series = $('.collections_list__09q3I li a')
         .map((i, el) => $(el).text().trim())
         .get();
 
-      // Get rating
-      const rating = parseFloat($('.StarIcon__Label-sc-6cf2a375-2').text().trim()) || null;
+      // Get rating with new selector
+      const ratingText = $('.star-icon_label__wbNAx').text().trim();
+      const rating = ratingText ? parseFloat(ratingText.replace(',', '.')) : null;
       
       // Get description with HTML
       const descriptionHtml = $('.description_description__6gcfq').html();
       
-      // Basic sanitization (you might want to use a proper HTML sanitizer library for production)
-      const sanitizedDescription = descriptionHtml
-        .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-        .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+      // Basic sanitization
+      let sanitizedDescription = '';
+      if (descriptionHtml) {
+        sanitizedDescription = descriptionHtml
+          .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
+          .replace(/<iframe\b[^<]*(?:(?!<\/iframe>)<[^<]*)*<\/iframe>/gi, '');
+      }
 
       let description = sanitizedDescription;
       if (addAudiotekaLinkToDescription) {
-        // Create the HTML link
         const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
-        // Combine the link and the description
         description = `${audioTekaLink}<br><br>${sanitizedDescription}`;
         console.log(`Audioteka link will be added to the description for ${match.title}`);
       }
@@ -211,14 +186,14 @@ class AudiotekaProvider {
       const cover = cleanCoverUrl($('.product-top_cover__Pth8B').attr('src') || match.cover);
 
       const languages = language === 'cz' 
-      ? ['czech'] 
-      : ['polish']
+        ? ['czech'] 
+        : ['polish'];
 
       const fullMetadata = {
         ...match,
         cover,
         narrator: narrators,
-        duration: durationInMinutes, // Assign the parsed minutes value
+        duration: durationInMinutes,
         publisher,
         description,
         type,
@@ -236,7 +211,6 @@ class AudiotekaProvider {
       return fullMetadata;
     } catch (error) {
       console.error(`Error fetching full metadata for ${match.title}:`, error.message, error.stack);
-      // Return basic metadata if full metadata fetch fails
       return match;
     }
   }
@@ -273,10 +247,10 @@ app.get('/search', async (req, res) => {
         tags: book.tags || undefined,
         series: book.series ? book.series.map(seriesName => ({
           series: seriesName,
-          sequence: undefined // Audioteka doesn't provide sequence numbers
+          sequence: undefined
         })) : undefined,
         language: book.languages && book.languages.length > 0 ? book.languages[0] : undefined,
-        duration: book.duration // This will now be the value in minutes from getFullMetadata
+        duration: book.duration
       }))
     };
 
