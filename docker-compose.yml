@@ -1,6 +1,6 @@
 services:
   audioteka-provider:
-    image: ghcr.io/craftwork2720/audiobookshelf-audioteka:latest
+    build: ./
     ports:
       - "3001:3001"
     environment:
