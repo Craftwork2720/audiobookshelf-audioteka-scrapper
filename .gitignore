@@ -150,3 +150,8 @@ Thumbs.db
 Dockerfile
 docker-compose.yml
 docker-compose.yaml
+
+
+dist/
+build/
+.build/
