@@ -15,9 +15,9 @@ A data scraping provider for AudioBookshelf that fetches audiobook metadata from
 
 ## Installation
 
-### Docker compose (Recommended)
+### Docker Compose
 
-```yml
+```yaml
 services:
   audiobookshelf-audioteka-scrapper:
     image: ghcr.io/craftwork2720/audiobookshelf-audioteka:latest
@@ -44,21 +44,6 @@ Set environment variables:
 | `AUTHORIZATION_TOKEN` | - | Required API authorization token |
 
 
-## Docker Compose Example
-
-```yaml
-version: '3.8'
-services:
-  audioteka-scraper:
-    build: .
-    ports:
-      - "3001:3001"
-    environment:
-      - AUTHORIZATION_TOKEN=your-secure-token
-      - LANGUAGE=pl
-      - MAX_RESULTS=20
-    restart: unless-stopped
-```
 
 ## Search Algorithm
 
