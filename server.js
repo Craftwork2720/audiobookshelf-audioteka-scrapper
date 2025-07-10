@@ -9,247 +9,101 @@ function cleanCoverUrl(url) {
 
 function parseDuration(durationStr) {
   if (!durationStr) return undefined;
-
-  const regexPatterns = [
-    /(?:(\d+)\s*godz\.|hrs?\.?)?\s*(?:(\d+)\s*min\.?)?/i,
-    /(?:(\d+)\s*h(?:ours?)?)?\s*(?:(\d+)\s*m(?:inutes?)?)?/i
-  ];
-
-  for (const pattern of regexPatterns) {
-    const matches = durationStr.match(pattern);
-    if (matches) {
-      const hours = parseInt(matches[1] || 0, 10);
-      const minutes = parseInt(matches[2] || 0, 10);
-      return hours * 60 + minutes;
-    }
-  }
-
-  if (durationStr.trim()) {
-    console.warn(`Could not parse duration: "${durationStr}"`);
-  }
-  return undefined;
+  
+  const match = durationStr.match(/(?:(\d+)\s*(?:godz|h|hrs?)\.?)?\s*(?:(\d+)\s*(?:min|m)\.?)?/i);
+  if (!match) return undefined;
+  
+  const hours = parseInt(match[1] || 0, 10);
+  const minutes = parseInt(match[2] || 0, 10);
+  return hours * 60 + minutes;
 }
 
-function normalizeString(str) {
-  return str
-    .toLowerCase()
+function normalize(str) {
+  return str.toLowerCase()
     .normalize("NFD")
     .replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^\w\s]/g, '')
+    .replace(/[^\w\s]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
 }
 
 function extractTitleComponents(title) {
-  const pattern = /^(.*?)\s+-\s+(.*?)\s*\((\d{4})\)\s*\[audiobook PL\]$/i;
-  const match = title.match(pattern);
-
-  if (match) {
-    return {
-      authors: match[1].split(/\s*,\s*|\s+i\s+|\s+oraz\s+/i),
-      cleanTitle: match[2],
-      year: parseInt(match[3], 10)
-    };
+  // Handle titles with or without year, with optional "Superprodukcja" suffix
+  const patterns = [
+    /^(.*?)\s+-\s+(.*?)\s*\((\d{4})\)\s*\[audiobook PL\](?:\s+Superprodukcja)?$/i,
+    /^(.*?)\s+-\s+(.*?)\s*\[audiobook PL\](?:\s+Superprodukcja)?$/i
+  ];
+  
+  for (const pattern of patterns) {
+    const match = title.match(pattern);
+    if (match) {
+      return {
+        authors: match[1].split(/\s*,\s*|\s+i\s+|\s+oraz\s+/i),
+        cleanTitle: match[2],
+        year: match[3] ? parseInt(match[3], 10) : null
+      };
+    }
   }
+  
   return null;
 }
 
-// Ulepszona funkcja obliczania podobieństwa stringów
-function calculateStringSimilarity(str1, str2) {
-  const norm1 = normalizeString(str1);
-  const norm2 = normalizeString(str2);
+function calculateScore(book, query, author) {
+  const normQuery = normalize(query);
+  const normAuthor = normalize(author || '');
+  const normTitle = normalize(book.cleanTitle || book.title);
+  const normBookAuthors = book.authors.map(a => normalize(a));
   
-  if (norm1 === norm2) return 100;
-  
-  // Levenshtein distance
-  const levenshteinDistance = (s1, s2) => {
-    const matrix = [];
-    for (let i = 0; i <= s2.length; i++) {
-      matrix[i] = [i];
-    }
-    for (let j = 0; j <= s1.length; j++) {
-      matrix[0][j] = j;
-    }
-    for (let i = 1; i <= s2.length; i++) {
-      for (let j = 1; j <= s1.length; j++) {
-        if (s2.charAt(i - 1) === s1.charAt(j - 1)) {
-          matrix[i][j] = matrix[i - 1][j - 1];
-        } else {
-          matrix[i][j] = Math.min(
-            matrix[i - 1][j - 1] + 1,
-            matrix[i][j - 1] + 1,
-            matrix[i - 1][j] + 1
-          );
-        }
-      }
-    }
-    return matrix[s2.length][s1.length];
-  };
-  
-  const distance = levenshteinDistance(norm1, norm2);
-  const maxLen = Math.max(norm1.length, norm2.length);
-  const similarity = maxLen === 0 ? 100 : ((maxLen - distance) / maxLen) * 100;
-  
-  return Math.max(0, similarity);
-}
-
-// Ulepszona funkcja dopasowania słów kluczowych
-function calculateKeywordMatch(text, keywords) {
-  const normText = normalizeString(text);
-  const normKeywords = normalizeString(keywords);
-  
-  if (!normKeywords) return 0;
-  
-  const keywordsList = normKeywords.split(/\s+/);
-  let matchScore = 0;
-  
-  for (const keyword of keywordsList) {
-    if (keyword.length < 2) continue;
-    
-    if (normText.includes(keyword)) {
-      // Dodatkowe punkty za dokładne dopasowanie całego słowa
-      const wordBoundaryRegex = new RegExp(`\\b${keyword}\\b`, 'i');
-      if (wordBoundaryRegex.test(normText)) {
-        matchScore += 30;
-      } else {
-        matchScore += 15;
-      }
-    }
-  }
-  
-  return Math.min(matchScore, 100);
-}
-
-// Znacznie ulepszona funkcja obliczania wyniku dopasowania
-function calculateMatchScore(book, query, author) {
   let score = 0;
-  const normQuery = normalizeString(query);
-  const normAuthor = author ? normalizeString(author) : '';
-  const normTitle = normalizeString(book.cleanTitle || book.title);
-  const normBookAuthors = book.authors.map(a => normalizeString(a));
   
-  // 1. Podobieństwo tytułu (waga: 40%)
-  const titleSimilarity = calculateStringSimilarity(normTitle, normQuery);
-  score += titleSimilarity * 0.4;
+  // Exact title match
+  if (normTitle === normQuery) return 95;
   
-  // 2. Dopasowanie słów kluczowych w tytule (waga: 30%)
-  const keywordMatch = calculateKeywordMatch(normTitle, normQuery);
-  score += keywordMatch * 0.3;
+  // Partial title match - check if query contains title or vice versa
+  if (normTitle.includes(normQuery) || normQuery.includes(normTitle)) {
+    score += 80;
+  }
   
-  // 3. Dopasowanie autora (waga: 20%)
+  // Word-by-word matching for title
+  const titleWords = normQuery.split(/\s+/).filter(word => word.length > 1);
+  const titleMatches = titleWords.filter(word => normTitle.includes(word)).length;
+  if (titleWords.length > 0) {
+    score += (titleMatches / titleWords.length) * 60;
+  }
+  
+  // Author matching
   if (normAuthor) {
-    let authorScore = 0;
-    for (const bookAuthor of normBookAuthors) {
-      const authorSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
-      authorScore = Math.max(authorScore, authorSimilarity);
-    }
-    score += authorScore * 0.2;
+    const authorMatch = normBookAuthors.some(bookAuthor => 
+      bookAuthor.includes(normAuthor) || normAuthor.includes(bookAuthor)
+    );
+    if (authorMatch) score += 25;
   }
   
-  // 4. Bonusy za jakość (waga: 10%)
-  let qualityBonus = 0;
+  // Quality bonus
+  if (book.rating >= 4.5) score += 10;
+  else if (book.rating >= 4.0) score += 5;
   
-  // Bonus za ocenę
-  if (book.rating) {
-    if (book.rating >= 4.5) qualityBonus += 30;
-    else if (book.rating >= 4.0) qualityBonus += 20;
-    else if (book.rating >= 3.5) qualityBonus += 10;
-  }
-  
-  // Bonus za nowość
+  // Recency bonus for new releases
   const currentYear = new Date().getFullYear();
-  if (book.year) {
-    const yearDiff = currentYear - book.year;
-    if (yearDiff <= 1) qualityBonus += 20;
-    else if (yearDiff <= 3) qualityBonus += 10;
-    else if (yearDiff <= 5) qualityBonus += 5;
-  }
+  if (book.year === currentYear) score += 5;
   
-  // Bonus za popularność (więcej autorów może oznaczać współpracę lub antologię)
-  if (book.authors && book.authors.length > 1) {
-    qualityBonus += 5;
-  }
-  
-  score += Math.min(qualityBonus, 100) * 0.1;
-  
-  // 5. Kary za słabe dopasowanie
-  if (titleSimilarity < 30 && keywordMatch < 20) {
-    score *= 0.5; // Znaczna kara za słabe dopasowanie
-  }
-  
-  // 6. Dokładne dopasowanie - bonus
-  if (normTitle === normQuery) {
-    score += 50;
-  }
-  
-  // 7. Dopasowanie początku tytułu
-  if (normTitle.startsWith(normQuery) || normQuery.startsWith(normTitle)) {
-    score += 25;
-  }
-  
-  return Math.min(score, 200); // Maksymalny wynik 200
+  return Math.min(score, 100);
 }
 
-// Funkcja do filtrowania duplikatów
 function removeDuplicates(matches) {
   const seen = new Set();
-  const uniqueMatches = [];
-  
-  for (const match of matches) {
-    const normalizedTitle = normalizeString(match.cleanTitle || match.title);
-    const normalizedAuthor = normalizeString(match.authors[0] || '');
-    const key = `${normalizedTitle}|${normalizedAuthor}`;
-    
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueMatches.push(match);
-    }
-  }
-  
-  return uniqueMatches;
-}
-
-// Funkcja do grupowania podobnych wyników
-function groupSimilarResults(matches, threshold = 85) {
-  const groups = [];
-  const used = new Set();
-  
-  for (let i = 0; i < matches.length; i++) {
-    if (used.has(i)) continue;
-    
-    const group = [matches[i]];
-    used.add(i);
-    
-    for (let j = i + 1; j < matches.length; j++) {
-      if (used.has(j)) continue;
-      
-      const similarity = calculateStringSimilarity(
-        matches[i].cleanTitle || matches[i].title,
-        matches[j].cleanTitle || matches[j].title
-      );
-      
-      if (similarity >= threshold) {
-        group.push(matches[j]);
-        used.add(j);
-      }
-    }
-    
-    // Wybierz najlepszy wynik z grupy
-    const bestMatch = group.reduce((best, current) => 
-      current.score > best.score ? current : best
-    );
-    
-    groups.push(bestMatch);
-  }
-  
-  return groups;
+  return matches.filter(match => {
+    const key = `${normalize(match.cleanTitle || match.title)}|${normalize(match.authors[0] || '')}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 const app = express();
 const port = process.env.PORT || 3001;
 
 app.use(cors());
-
 app.use((req, res, next) => {
   const apiKey = req.headers['authorization'];
   if (!apiKey) return res.status(401).json({ error: 'Unauthorized' });
@@ -265,9 +119,9 @@ class AudiotekaProvider {
     this.id = 'audioteka';
     this.name = 'Audioteka';
     this.baseUrl = 'https://audioteka.com';
-    this.searchUrl = language === 'cz' ?
-      'https://audioteka.com/cz/vyhledavani' :
-      'https://audioteka.com/pl/szukaj';
+    this.searchUrl = language === 'cz' 
+      ? 'https://audioteka.com/cz/vyhledavani' 
+      : 'https://audioteka.com/pl/szukaj';
   }
 
   async searchBooks(query, author = '', page = 1) {
@@ -275,16 +129,15 @@ class AudiotekaProvider {
       const searchUrl = `${this.searchUrl}?phrase=${encodeURIComponent(query)}&page=${page}`;
       const response = await axios.get(searchUrl, {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
           'Accept-Language': language === 'cz' ? 'cs-CZ' : 'pl-PL'
         }
       });
+      
       const $ = cheerio.load(response.data);
-
       const matches = [];
-      const $books = $('.adtk-item.teaser_teaser__FDajW');
-
-      $books.each((index, element) => {
+      
+      $('.adtk-item.teaser_teaser__FDajW').each((index, element) => {
         const $book = $(element);
         const title = $book.find('.teaser_title__hDeCG').text().trim();
         const bookUrl = this.baseUrl + $book.find('.teaser_link__fxVFQ').attr('href');
@@ -293,15 +146,15 @@ class AudiotekaProvider {
         const rating = parseFloat($book.find('.teaser-footer_rating__TeVOA').text().trim()) || null;
         const id = $book.attr('data-item-id') || bookUrl.split('/').pop();
 
-        if (title && bookUrl && authors.length > 0 && authors[0]) {
+        if (title && bookUrl && authors[0]) {
           matches.push({ id, title, authors, url: bookUrl, cover, rating });
         }
       });
 
-      const nextPageLink = $('a[aria-label="Next"]');
-      return { matches, hasMore: nextPageLink.length > 0 };
+      const hasMore = $('a[aria-label="Next"]').length > 0;
+      return { matches, hasMore };
     } catch (error) {
-      console.error('Error searching books:', error.message);
+      console.error('Search error:', error.message);
       return { matches: [], hasMore: false };
     }
   }
@@ -311,57 +164,39 @@ class AudiotekaProvider {
       const response = await axios.get(match.url);
       const $ = cheerio.load(response.data);
 
-      // Extract narrator
-      const narrators = language === 'cz'
-        ? $('dt:contains("Interpret")').next('dd').find('a').map((i, el) => $(el).text().trim()).get().join(', ')
-        : $('dt:contains("Głosy")').next('dd').find('a').map((i, el) => $(el).text().trim()).get().join(', ');
-
-      // Extract duration
-      const durationStr = language === 'cz'
-        ? $('dt:contains("Délka")').next('dd').text().trim()
-        : $('dt:contains("Długość")').next('dd').text().trim();
-      const durationInMinutes = parseDuration(durationStr);
-
-      // Extract publisher
-      const publisher = language === 'cz'
-        ? $('dt:contains("Vydavatel")').next('dd').find('a').first().text().trim()
-        : $('dt:contains("Wydawca")').next('dd').find('a').first().text().trim();
-
-      // Extract genres
-      const genres = language === 'cz'
-        ? $('dt:contains("Kategorie")').next('dd').find('a').map((i, el) => $(el).text().trim()).get()
-        : $('dt:contains("Kategoria")').next('dd').find('a').map((i, el) => $(el).text().trim()).get();
-
-      // Extract rating
+      const isCzech = language === 'cz';
+      
+      // Extract metadata
+      const narrators = $(isCzech ? 'dt:contains("Interpret")' : 'dt:contains("Głosy")')
+        .next('dd').find('a').map((i, el) => $(el).text().trim()).get().join(', ');
+      
+      const durationStr = $(isCzech ? 'dt:contains("Délka")' : 'dt:contains("Długość")')
+        .next('dd').text().trim();
+      const duration = parseDuration(durationStr);
+      
+      const publisher = $(isCzech ? 'dt:contains("Vydavatel")' : 'dt:contains("Wydawca")')
+        .next('dd').find('a').first().text().trim();
+      
+      const genres = $(isCzech ? 'dt:contains("Kategorie")' : 'dt:contains("Kategoria")')
+        .next('dd').find('a').map((i, el) => $(el).text().trim()).get();
+      
       const ratingText = $('.star-icon_label__wbNAx').text().trim();
       const rating = ratingText ? parseFloat(ratingText.replace(',', '.')) : null;
-
-      // Extract description
-      let description = '';
-      const descriptionElement = $('.description_description__6gcfq');
       
-      if (descriptionElement.length > 0) {
-        description = descriptionElement.html() || descriptionElement.text().trim();
-        
-        if (description && !description.includes('<')) {
-          description = description.replace(/\n\s*\n/g, '\n\n').trim();
-        }
+      let description = $('.description_description__6gcfq').html() || 
+                      $('.description_description__6gcfq').text().trim();
+      
+      if (addAudiotekaLinkToDescription) {
+        const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
+        description = description ? `${audioTekaLink}\n\n${description}` : audioTekaLink;
       }
-
-      // Add Audioteka link if enabled
-      if (addAudiotekaLinkToDescription && description) {
-        description = `<a href="${match.url}">Audioteka link</a>\n\n${description}`;
-      }
-
-      // Extract cover
+      
       const cover = cleanCoverUrl($('.product-top_cover__Pth8B').attr('src') || match.cover);
-
-      // Extract published year
-      let publishedYear;
-      const yearMatch = $('dt:contains("Rok vydání"), dt:contains("Rok wydania")').next('dd').text().trim();
-      if (yearMatch) publishedYear = parseInt(yearMatch, 10);
-
-      // Extract title components
+      
+      const yearMatch = $('dt:contains("Rok vydání"), dt:contains("Rok wydania")')
+        .next('dd').text().trim();
+      const publishedYear = yearMatch ? parseInt(yearMatch, 10) : null;
+      
       const titleComponents = extractTitleComponents(match.title) || {
         authors: match.authors,
         cleanTitle: match.title,
@@ -373,17 +208,17 @@ class AudiotekaProvider {
         ...titleComponents,
         cover,
         narrator: narrators,
-        duration: durationInMinutes,
+        duration,
         publisher,
         description,
         genres,
         rating,
         publishedYear: titleComponents.year,
         identifiers: { audioteka: match.id },
-        languages: [language === 'cz' ? 'czech' : 'polish']
+        languages: [isCzech ? 'czech' : 'polish']
       };
     } catch(error) {
-      console.error(`Error fetching metadata for ${match.title}:`, error.message);
+      console.error(`Metadata error for ${match.title}:`, error.message);
       return match;
     }
   }
@@ -398,54 +233,42 @@ app.get('/search', async (req, res) => {
 
     console.log(`Searching for: "${query}" by "${author}"`);
 
-    // Search across multiple pages
+    // Search multiple pages
     let allMatches = [];
     let currentPage = parseInt(page);
     let hasMore = true;
     let pageCount = 0;
 
-    while (hasMore && allMatches.length < MAX_RESULTS * 2 && pageCount < 5) {
+    while (hasMore && allMatches.length < MAX_RESULTS * 2 && pageCount < 3) {
       const { matches, hasMore: more } = await provider.searchBooks(query, author, currentPage);
       allMatches = [...allMatches, ...matches];
-      hasMore = more;
+      hasMore = more && matches.length > 0;
       currentPage++;
       pageCount++;
-      
-      if (matches.length === 0) break; // Przerwij jeśli nie ma więcej wyników
     }
 
-    console.log(`Found ${allMatches.length} initial matches`);
+    console.log(`Found ${allMatches.length} matches`);
 
-    // Remove duplicates
-    allMatches = removeDuplicates(allMatches);
-    console.log(`After removing duplicates: ${allMatches.length} matches`);
-
-    // Score and sort results
-    const scoredMatches = allMatches.map(book => {
+    // Remove duplicates and score results
+    const uniqueMatches = removeDuplicates(allMatches);
+    const scoredMatches = uniqueMatches.map(book => {
       const components = extractTitleComponents(book.title) || {
         authors: book.authors,
         cleanTitle: book.title,
         year: new Date().getFullYear()
       };
       const bookWithComponents = { ...book, ...components };
-      const score = calculateMatchScore(bookWithComponents, query, author);
+      const score = calculateScore(bookWithComponents, query, author);
       
-      return {
-        ...bookWithComponents,
-        score
-      };
-    }).sort((a, b) => b.score - a.score);
+      return { ...bookWithComponents, score };
+    });
 
-    // Group similar results and keep only the best from each group
-    const groupedMatches = groupSimilarResults(scoredMatches);
-    console.log(`After grouping similar results: ${groupedMatches.length} matches`);
+    // Sort by score and take top results
+    const topMatches = scoredMatches
+      .sort((a, b) => b.score - a.score)
+      .slice(0, MAX_RESULTS);
 
-    // Filter out very low scoring results
-    const filteredMatches = groupedMatches.filter(match => match.score > 20);
-    console.log(`After filtering low scores: ${filteredMatches.length} matches`);
-
-    // Get metadata for top results
-    const topMatches = filteredMatches.slice(0, MAX_RESULTS);
+    // Get full metadata
     const fullMetadata = await Promise.all(
       topMatches.map(async (match) => {
         const metadata = await provider.getFullMetadata(match);
@@ -453,18 +276,11 @@ app.get('/search', async (req, res) => {
       })
     );
 
-    // Sort final results by score
-    const sortedResults = fullMetadata.sort((a, b) => b.score - a.score);
-
-    console.log(`Returning ${sortedResults.length} results`);
-    console.log('Top 3 scores:', sortedResults.slice(0, 3).map(r => ({ 
-      title: r.cleanTitle, 
-      score: r.score.toFixed(2) 
-    })));
+    console.log(`Returning ${fullMetadata.length} results`);
 
     // Format response
     res.json({
-      matches: sortedResults.map(book => ({
+      matches: fullMetadata.map(book => ({
         title: book.cleanTitle || book.title,
         author: book.authors.join(', '),
         narrator: book.narrator || undefined,

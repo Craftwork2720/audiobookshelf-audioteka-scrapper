@@ -1,94 +1,149 @@
-# audioteka-abs
-Audiobookshelf Custom Metadata Provider for Audioteka.com. 
-Right now it's supporting Polish and Czech sites.
+# AudioBookshelf Audioteka Scraper
 
-Docker hub page: https://hub.docker.com/r/lakafior/audioteka-abs
+A data scraping provider for AudioBookshelf that fetches audiobook metadata from Audioteka.com (Polish and Czech versions).
 
-## Screenshots
+## Features
 
-### List of matches
-![obraz](https://github.com/user-attachments/assets/411b5897-38cf-4c31-bb1c-4b4dfb62d02c)
-![obraz](https://github.com/user-attachments/assets/d470bb59-9d42-4c32-a65c-2f14b81cc71b)
+- Search audiobooks by title and author
+- Extract comprehensive metadata including:
+  - Title, author, narrator, publisher
+  - Duration, rating, genres, publication year
+  - Cover images and descriptions
+  - Direct links to Audioteka
+- Support for both Polish (`pl`) and Czech (`cz`) languages
+- Intelligent search scoring and duplicate removal
+- RESTful API interface compatible with AudioBookshelf
 
+## Installation
 
-### View of matched data
-![obraz](https://github.com/user-attachments/assets/68828be1-fc74-4c08-b44b-b6977c497df4)
+### Docker (Recommended)
 
-## Fetching features:
-- Cover
-- Title
-- Author
-- Publisher
-- Series
-- Genres
-- Language
-- Description
-- **Lectors**
-- **Audiobook cover**
-
-# Instructions
-
-## How to run:
-
-### Prerequisites:
-Docker and Docker Compose installed on your system
-
-### Setup and Running:
-1. Create or copy from girhub a compose.yml file in your desired directory with the following content.
+```bash
+docker build -t audioteka-scraper .
+docker run -p 3001:3001 -e AUTHORIZATION_TOKEN=your-token audioteka-scraper
 ```
----
+
+### Manual Installation
+
+```bash
+npm install
+npm start
+```
+
+## Configuration
+
+Set environment variables:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `3001` | Server port |
+| `LANGUAGE` | `pl` | Language (`pl` or `cz`) |
+| `MAX_RESULTS` | `15` | Maximum search results |
+| `ADD_AUDIOTEKA_LINK_TO_DESCRIPTION` | `true` | Add link to description |
+| `AUTHORIZATION_TOKEN` | - | Required API authorization token |
+
+## API Endpoints
+
+### Search Books
+
+```
+GET /search?query=book-title&author=author-name&page=1
+```
+
+**Headers:**
+- `Authorization: Bearer your-token`
+
+**Parameters:**
+- `query` (required): Book title to search for
+- `author` (optional): Author name to filter by
+- `page` (optional): Page number (default: 1)
+
+**Response:**
+```json
+{
+  "matches": [
+    {
+      "title": "Book Title",
+      "author": "Author Name",
+      "narrator": "Narrator Name",
+      "publisher": "Publisher",
+      "publishedYear": "2025",
+      "description": "Book description...",
+      "cover": "https://cover-url.jpg",
+      "genres": ["Genre1", "Genre2"],
+      "language": "polish",
+      "duration": 480,
+      "rating": 4.5,
+      "audioTekaLink": "https://audioteka.com/book-url"
+    }
+  ]
+}
+```
+
+## Usage with AudioBookshelf
+
+1. Configure this scraper as a metadata provider in AudioBookshelf
+2. Set the base URL to your running instance (e.g., `http://localhost:3001`)
+3. Add the authorization token in AudioBookshelf settings
+4. Use the `/search` endpoint for book lookups
+
+## Development
+
+```bash
+# Install dependencies
+npm install
+
+# Start in development mode
+NODE_ENV=development npm start
+
+# The server will include match scores in responses for debugging
+```
+
+## Docker Compose Example
+
+```yaml
+version: '3.8'
 services:
-  audioteka-abs:
-    image: lakafior/audioteka-abs
-    container_name: audioteka-abs
-    environment:
-      - LANGUAGE=pl # For Czech users: Change enviorment line to - LANGUAGE=cz
-      - ADD_AUDIOTEKA_LINK_TO_DESCRIPTION=true # Optional: Set to 'false' to remove the Audioteka link from the description
-    restart: unless-stopped
+  audioteka-scraper:
+    build: .
     ports:
       - "3001:3001"
-```
-#### 
-
-2. Pull the latest Docker image:
-```
-docker-compose pull
-```
-3. Start the application:
-```
-docker-compose up -d
+    environment:
+      - AUTHORIZATION_TOKEN=your-secure-token
+      - LANGUAGE=pl
+      - MAX_RESULTS=20
+    restart: unless-stopped
 ```
 
+## Search Algorithm
 
-### Updating the Application:
-To update to the latest version:
-```
-docker-compose pull
-```
-```
-docker-compose up -d
-```
+The scraper uses an intelligent scoring system that considers:
 
-### To stop the application:
+- **Exact title matches** (highest priority)
+- **Partial title matches** and word-by-word comparison
+- **Author matching** when provided
+- **Quality indicators** (rating, recency)
+- **Duplicate removal** based on normalized titles and authors
 
-```
-docker-compose down
-```
+## Supported Title Formats
 
-### To view logs:
+The scraper recognizes various Audioteka title formats:
 
-```
-docker-compose logs -f
-```
+- `Author - Title (Year) [audiobook PL]`
+- `Author - Title [audiobook PL]`
+- `Author - Title (Year) [audiobook PL] Superprodukcja`
+---
 
-## How to use
-1. Navigate to your AudiobookShelf settings
-2. Navigate to Item Metadata Utils
-3. Navigate to Custom Metadata Providers
-4. Click on Add
-5. Name: whatever for example AudioTeka
-6. URL: http://your-ip:3001
-7. Authorization Header Value: whatever, but not blank, for example 00000
-8. Save
+## Integration with Audiobookshelf
 
-![obraz](https://github.com/user-attachments/assets/39ab7936-0b48-4a61-b418-840d02855522)
+To integrate with Audiobookshelf:
+
+1. Go to **Settings** > **Item Metadata Utils** > **Custom Metadata Providers**.
+2. Click **Add**.
+3. Fill in the following:
+   - **Name**: `Audioteka` (or any name)
+   - **URL**: `http://<your-ip>:3001`
+   - **Authorization Header Value**: Any non-empty string (e.g., `00000`)
+4. Click **Save**.
+
+Now, Audiobookshelf will use this service to fetch metadata from Audioteka.

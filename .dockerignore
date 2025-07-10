@@ -1,7 +1,240 @@
-node_modules
-npm-debug.log
+
+Please simplify and clean up the search logic 
+Return the improved code only, with no extra commentary
+
+Edit
+I'd be happy to help simplify and clean up search logic, but I don't see any code provided in your message. Could you please share the code you'd like me to improve? Once you provide the search logic code, I'll create an artifact with the cleaned-up version.
+
+
+
+
+
+server.js
+494 lines
+
+js
+
+Edit
+
+Simplified Search Logic
+Code 
+
+
+
+Here’s a sample of titles 
+Krzysztof Jóźwik - Wyrzynacz (2025) [audiobook PL]
+Remigiusz Mróz - Substytucja (2025) [audiobook PL]
+Bartłomiej Świderski - Mazurski przekręt (2025) [audiobook PL] Superprodukcja
+Katarzyna Wolwowicz - Niewierna (2025) [audiobook PL]
+Graham Masterton - Złodziej dusz (2025) [audiobook PL]
+Oliwia Marczak - Sędzia (2025) [audiobook PL]
+Łukasz Głowacki - Defekt Motyla (2025) [audiobook PL]
+Aleksandra Polańska - Zdradzona (2025) [audiobook PL]
+Sally Hepworth - Kochane córeczki (2025) [audiobook PL]
+Jakub Żulczyk - Czarne słońce [audiobook PL]
+Lisa Regan - Bezimienna (2025) [audiobook PL]
+Henryk Tur - Skald (2025) [audiobook PL]
+Zdzisław Boczkowski - Miny za burtą (2025) [audiobook PL]
+Ildefonso Falcones - Niewolnica wolności (2025) [audiobook PL]
+Django Wexler - Piekielny batalion (2025) [audiobook PL]
+Lisa Regan - Znikające dziewczyny (2025) [audiobook PL]
+Anna Klejzerowicz - Hrabina (2025) [audiobook PL]
+H. Hoffer - Odyseja Hansa Schmidta (2025) [audiobook PL]
+Paweł Famus - Nowe rozdanie (2025) [audiobook PL]
+Jędrzej Pasierski - Bogowie małego morza (2025) [audiobook PL]
+Przemek Corso - SuperNova (2025) [audiobook PL]
+Emilia Szelest - Jaskinia milczących (2025) [audiobook PL]
+Krzysztof Piersa - Riese. Tajemnica Gór Sowich (2025) [audiobook PL]
+Przemysław Borkowski - Nie bierz nic z takich miejsc (2025) [audiobook PL]
+Stuart Turton - Morderstwo u kresu świata (2025) [audiobook PL]
+Tomasz Wandzel - Dwa strzały (2025) [audiobook PL]
+Michael Connelly - Godziny mroku (2025) [audiobook PL]
+Katarzyna Puzyńska - Dzielnica cieni (2025) [audiobook PL]
+Kel Kade - Przeznaczenie umarłych (2025) [audiobook PL]
+Adrian Ksycki - Przeklęty (2025) [audiobook PL]
+Tomasz Lipko - Login (2025) [audiobook PL]
+Sara Antczak - Lina (2025) [audiobook PL]
+Krzysztof Spadło - Wujek, samo zło (2025) [audiobook PL]
+Artur Tojza - Zajazd pod Cnotliwą sekutnicą (2025) [audiobook PL]
+Mark Gimenez - Nikt nie wygrywa (2025) [audiobook PL]
+Katarzyna Miszczuk Berenika - Swarożyc (2025) [audiobook PL]
+Wojciech Chmielarz - Rytuał (2025) [audiobook PL]
+Edward Pasewicz - Śmierć w darkroomie (2025) [audiobook PL]
+Sławomir Michał - Człowiek, który zabił Jamesa Pereza (2025) [audiobook PL]
+Maciej Ruszel - Strażnik Tresaonu (2025) [audiobook PL]
+Taran Matharu - Smoczy jeździec (2025) [audiobook PL]
+
+Edit
+
+Simplified Search Logic
+Code ∙ Version 2 
+
+Simplified Search Logic
+Code ∙ Version 3 
+
+
+
+{
+  "name": "audiobookshelf-audioteka-scrapper",
+  "version": "1.2.0",
+  "description": "Audioteka data scraping provider for AudioBookshelf",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "axios": "^1.7.2",
+    "cheerio": "^1.0.0-rc.12", 
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
+
+Edit
+I see you've provided the package.json file. The simplified search logic in the artifact is already compatible with these dependencies. The code uses:
+
+express for the web server
+axios for HTTP requests
+cheerio for HTML parsing
+cors for cross-origin resource sharing
+The simplified version maintains all the core functionality while being much cleaner and more maintainable. It properly handles the title formats you showed (with and without years, with optional "Superprodukcja" suffix) and uses a more straightforward scoring algorithm that should work well with the Audioteka search results.
+
+The main improvements in the simplified version:
+
+Reduced complex scoring logic to focus on the most important factors
+Simplified string matching and normalization
+Streamlined duplicate removal
+More efficient search across multiple pages
+Better error handling and logging
+
+
+
+create dockerignore
+
+Edit
+
+.dockerignore
+Code 
+
+
+
+create gitignore
+
+Edit
+
+.gitignore
+Code 
+
+
+
+dockerfile
+
+Edit
+
 Dockerfile
-docker-compose.yml
+Code 
+
+
+
+readme.nd
+
+Edit
+
+README.md
+Document 
+
+
+
+
+
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+logs
+*.log
+
+# Git
 .git
 .gitignore
-.env
+
+# Documentation
+README.md
+docs/
+
+# Docker
+Dockerfile
+docker-compose.yml
+docker-compose.yaml
+.dockerignore
+
+# Testing
+test/
+tests/
+*.test.js
+*.spec.js
+
+# Build artifacts
+dist/
+build/
