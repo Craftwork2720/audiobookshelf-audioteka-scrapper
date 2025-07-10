@@ -46,7 +46,7 @@ function extractTitleComponents(title) {
 
   if (match) {
     return {
-      authors: match[1].split(/\s*,\s*|\s+i\s+|\s+oraz\s+/i),
+      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
       cleanTitle: match[2],
       year: parseInt(match[3], 10)
     };
@@ -54,7 +54,6 @@ function extractTitleComponents(title) {
   return null;
 }
 
-// Ulepszona funkcja obliczania podobieństwa stringów
 function calculateStringSimilarity(str1, str2) {
   const norm1 = normalizeString(str1);
   const norm2 = normalizeString(str2);
@@ -93,7 +92,6 @@ function calculateStringSimilarity(str1, str2) {
   return Math.max(0, similarity);
 }
 
-// Ulepszona funkcja dopasowania słów kluczowych
 function calculateKeywordMatch(text, keywords) {
   const normText = normalizeString(text);
   const normKeywords = normalizeString(keywords);
@@ -120,7 +118,6 @@ function calculateKeywordMatch(text, keywords) {
   return Math.min(matchScore, 100);
 }
 
-// Znacznie ulepszona funkcja obliczania wyniku dopasowania
 function calculateMatchScore(book, query, author) {
   let score = 0;
   const normQuery = normalizeString(query);
@@ -146,103 +143,22 @@ function calculateMatchScore(book, query, author) {
     score += authorScore * 0.2;
   }
   
-  // 4. Bonusy za jakość (waga: 10%)
-  let qualityBonus = 0;
-  
-  // Bonus za ocenę
-  if (book.rating) {
-    if (book.rating >= 4.5) qualityBonus += 30;
-    else if (book.rating >= 4.0) qualityBonus += 20;
-    else if (book.rating >= 3.5) qualityBonus += 10;
-  }
-  
-  // Bonus za nowość
-  const currentYear = new Date().getFullYear();
-  if (book.year) {
-    const yearDiff = currentYear - book.year;
-    if (yearDiff <= 1) qualityBonus += 20;
-    else if (yearDiff <= 3) qualityBonus += 10;
-    else if (yearDiff <= 5) qualityBonus += 5;
-  }
-  
-  // Bonus za popularność (więcej autorów może oznaczać współpracę lub antologię)
-  if (book.authors && book.authors.length > 1) {
-    qualityBonus += 5;
-  }
-  
-  score += Math.min(qualityBonus, 100) * 0.1;
-  
-  // 5. Kary za słabe dopasowanie
+  // 4. Kary za słabe dopasowanie
   if (titleSimilarity < 30 && keywordMatch < 20) {
     score *= 0.5; // Znaczna kara za słabe dopasowanie
   }
   
-  // 6. Dokładne dopasowanie - bonus
+  // 5. Dokładne dopasowanie - bonus
   if (normTitle === normQuery) {
     score += 50;
   }
   
-  // 7. Dopasowanie początku tytułu
+  // 6. Dopasowanie początku tytułu
   if (normTitle.startsWith(normQuery) || normQuery.startsWith(normTitle)) {
     score += 25;
   }
   
   return Math.min(score, 200); // Maksymalny wynik 200
-}
-
-// Funkcja do filtrowania duplikatów
-function removeDuplicates(matches) {
-  const seen = new Set();
-  const uniqueMatches = [];
-  
-  for (const match of matches) {
-    const normalizedTitle = normalizeString(match.cleanTitle || match.title);
-    const normalizedAuthor = normalizeString(match.authors[0] || '');
-    const key = `${normalizedTitle}|${normalizedAuthor}`;
-    
-    if (!seen.has(key)) {
-      seen.add(key);
-      uniqueMatches.push(match);
-    }
-  }
-  
-  return uniqueMatches;
-}
-
-// Funkcja do grupowania podobnych wyników
-function groupSimilarResults(matches, threshold = 85) {
-  const groups = [];
-  const used = new Set();
-  
-  for (let i = 0; i < matches.length; i++) {
-    if (used.has(i)) continue;
-    
-    const group = [matches[i]];
-    used.add(i);
-    
-    for (let j = i + 1; j < matches.length; j++) {
-      if (used.has(j)) continue;
-      
-      const similarity = calculateStringSimilarity(
-        matches[i].cleanTitle || matches[i].title,
-        matches[j].cleanTitle || matches[j].title
-      );
-      
-      if (similarity >= threshold) {
-        group.push(matches[j]);
-        used.add(j);
-      }
-    }
-    
-    // Wybierz najlepszy wynik z grupy
-    const bestMatch = group.reduce((best, current) => 
-      current.score > best.score ? current : best
-    );
-    
-    groups.push(bestMatch);
-  }
-  
-  return groups;
 }
 
 const app = express();
@@ -419,10 +335,6 @@ app.get('/search', async (req, res) => {
 
     console.log(`Found ${allMatches.length} initial matches`);
 
-    // Remove duplicates
-    allMatches = removeDuplicates(allMatches);
-    console.log(`After removing duplicates: ${allMatches.length} matches`);
-
     // Score and sort results
     const scoredMatches = allMatches.map(book => {
       const components = extractTitleComponents(book.title) || {
@@ -439,12 +351,8 @@ app.get('/search', async (req, res) => {
       };
     }).sort((a, b) => b.score - a.score);
 
-    // Group similar results and keep only the best from each group
-    const groupedMatches = groupSimilarResults(scoredMatches);
-    console.log(`After grouping similar results: ${groupedMatches.length} matches`);
-
     // Filter out very low scoring results
-    const filteredMatches = groupedMatches.filter(match => match.score > 20);
+    const filteredMatches = scoredMatches.filter(match => match.score > 20);
     console.log(`After filtering low scores: ${filteredMatches.length} matches`);
 
     // Get metadata for top results
