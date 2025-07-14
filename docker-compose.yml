@@ -8,4 +8,6 @@ services:
       - LANGUAGE=pl
       - MAX_RESULTS=15
       - ADD_AUDIOTEKA_LINK_TO_DESCRIPTION=true
+      - MIN_SCORE_THRESHOLD=150  # Minimalny wynik dopasowania
+      - STRICT_MATCHING=true     # Włączenie ostrego filtrowania
     restart: unless-stopped

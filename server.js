@@ -125,40 +125,69 @@ function calculateMatchScore(book, query, author) {
   const normTitle = normalizeString(book.cleanTitle || book.title);
   const normBookAuthors = book.authors.map(a => normalizeString(a));
   
-  // 1. Podobieństwo tytułu (waga: 40%)
+  // 1. Podobieństwo tytułu - zwiększona waga (50%)
   const titleSimilarity = calculateStringSimilarity(normTitle, normQuery);
-  score += titleSimilarity * 0.4;
+  score += titleSimilarity * 0.5;
   
-  // 2. Dopasowanie słów kluczowych w tytule (waga: 30%)
+  // 2. Dopasowanie słów kluczowych w tytule - zmniejszona waga (25%)
   const keywordMatch = calculateKeywordMatch(normTitle, normQuery);
-  score += keywordMatch * 0.3;
+  score += keywordMatch * 0.25;
   
-  // 3. Dopasowanie autora (waga: 20%)
+  // 3. Dopasowanie autora - zwiększona waga (25%)
   if (normAuthor) {
     let authorScore = 0;
     for (const bookAuthor of normBookAuthors) {
       const authorSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
       authorScore = Math.max(authorScore, authorSimilarity);
     }
-    score += authorScore * 0.2;
+    score += authorScore * 0.25;
   }
   
-  // 4. Kary za słabe dopasowanie
-  if (titleSimilarity < 30 && keywordMatch < 20) {
-    score *= 0.5; // Znaczna kara za słabe dopasowanie
+  // 4. Zwiększone kary za słabe dopasowanie
+  if (titleSimilarity < 80 && keywordMatch < 50) {
+    score *= 0.3; // Bardzo duża kara za słabe dopasowanie
   }
   
-  // 5. Dokładne dopasowanie - bonus
+  // 5. Dokładne dopasowanie - większy bonus
   if (normTitle === normQuery) {
-    score += 50;
+    score += 100; // Zwiększony bonus za dokładne dopasowanie
   }
   
-  // 6. Dopasowanie początku tytułu
+  // 6. Dopasowanie początku tytułu - większy bonus
   if (normTitle.startsWith(normQuery) || normQuery.startsWith(normTitle)) {
-    score += 25;
+    score += 50; // Zwiększony bonus
   }
   
-  return Math.min(score, 200); // Maksymalny wynik 200
+  // 7. Nowy bonus za bardzo wysokie podobieństwo tytułu
+  if (titleSimilarity >= 95) {
+    score += 75; // Bonus za niemal identyczny tytuł
+  }
+  
+  // 8. Bonus za bardzo wysokie dopasowanie autora
+  if (normAuthor && normBookAuthors.some(bookAuthor => {
+    const authorSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
+    return authorSimilarity >= 95;
+  })) {
+    score += 50; // Bonus za niemal identycznego autora
+  }
+  
+  // 9. Kara za zbyt krótkie zapytanie (może być nieprecyzyjne)
+  if (normQuery.length < 3) {
+    score *= 0.5;
+  }
+  
+  // 10. Bonus za dopasowanie wszystkich słów z zapytania
+  const queryWords = normQuery.split(/\s+/).filter(word => word.length > 2);
+  const titleWords = normTitle.split(/\s+/);
+  const matchedWords = queryWords.filter(queryWord => 
+    titleWords.some(titleWord => titleWord.includes(queryWord) || queryWord.includes(titleWord))
+  );
+  
+  if (queryWords.length > 0 && matchedWords.length === queryWords.length) {
+    score += 40; // Bonus za dopasowanie wszystkich słów
+  }
+  
+  return Math.min(score, 300); // Zwiększony maksymalny wynik do 300
 }
 
 const app = express();
@@ -175,6 +204,10 @@ app.use((req, res, next) => {
 const language = process.env.LANGUAGE || 'pl';
 const addAudiotekaLinkToDescription = (process.env.ADD_AUDIOTEKA_LINK_TO_DESCRIPTION || 'true').toLowerCase() === 'true';
 const MAX_RESULTS = parseInt(process.env.MAX_RESULTS) || 15;
+
+// Dodane zmienne środowiskowe dla progów dopasowania
+const MIN_SCORE_THRESHOLD = parseInt(process.env.MIN_SCORE_THRESHOLD) || 150;
+const STRICT_MATCHING = (process.env.STRICT_MATCHING || 'true').toLowerCase() === 'true';
 
 class AudiotekaProvider {
   constructor() {
@@ -315,7 +348,7 @@ app.get('/search', async (req, res) => {
     const { query, author = '', page = 1 } = req.query;
     if (!query) return res.status(400).json({ error: 'Query parameter is required' });
 
-    console.log(`Searching for: "${query}" by "${author}"`);
+    console.log(`Searching for: "${query}" by "${author}" (strict matching: ${STRICT_MATCHING}, min score: ${MIN_SCORE_THRESHOLD})`);
 
     // Search across multiple pages
     let allMatches = [];
@@ -351,9 +384,25 @@ app.get('/search', async (req, res) => {
       };
     }).sort((a, b) => b.score - a.score);
 
-    // Filter out very low scoring results
-    const filteredMatches = scoredMatches.filter(match => match.score > 20);
-    console.log(`After filtering low scores: ${filteredMatches.length} matches`);
+    // Zastosowanie ostrzejszego filtrowania
+    const filteredMatches = scoredMatches.filter(match => {
+      if (STRICT_MATCHING) {
+        return match.score >= MIN_SCORE_THRESHOLD;
+      } else {
+        return match.score > 20; // Stare kryterium jako fallback
+      }
+    });
+    
+    console.log(`After filtering (min score: ${MIN_SCORE_THRESHOLD}): ${filteredMatches.length} matches`);
+
+    if (filteredMatches.length === 0) {
+      console.log('No matches found with high enough score. Top 5 scores:', 
+        scoredMatches.slice(0, 5).map(r => ({ 
+          title: r.cleanTitle, 
+          score: r.score.toFixed(2) 
+        }))
+      );
+    }
 
     // Get metadata for top results
     const topMatches = filteredMatches.slice(0, MAX_RESULTS);
@@ -367,11 +416,13 @@ app.get('/search', async (req, res) => {
     // Sort final results by score
     const sortedResults = fullMetadata.sort((a, b) => b.score - a.score);
 
-    console.log(`Returning ${sortedResults.length} results`);
-    console.log('Top 3 scores:', sortedResults.slice(0, 3).map(r => ({ 
-      title: r.cleanTitle, 
-      score: r.score.toFixed(2) 
-    })));
+    console.log(`Returning ${sortedResults.length} high-quality results`);
+    if (sortedResults.length > 0) {
+      console.log('Top 3 scores:', sortedResults.slice(0, 3).map(r => ({ 
+        title: r.cleanTitle, 
+        score: r.score.toFixed(2) 
+      })));
+    }
 
     // Format response
     res.json({
@@ -389,7 +440,14 @@ app.get('/search', async (req, res) => {
         rating: book.rating,
         audioTekaLink: book.url,
         matchScore: process.env.NODE_ENV === 'development' ? book.score.toFixed(2) : undefined
-      }))
+      })),
+      searchInfo: {
+        totalFound: allMatches.length,
+        afterFiltering: filteredMatches.length,
+        returned: sortedResults.length,
+        minScoreThreshold: MIN_SCORE_THRESHOLD,
+        strictMatching: STRICT_MATCHING
+      }
     });
   } catch (error) {
     console.error('Search error:', error);
@@ -399,4 +457,5 @@ app.get('/search', async (req, res) => {
 
 app.listen(port, () => {
   console.log(`Audioteka provider listening on port ${port}, language: ${language}`);
+  console.log(`Configuration: MIN_SCORE_THRESHOLD=${MIN_SCORE_THRESHOLD}, STRICT_MATCHING=${STRICT_MATCHING}`);
 });
