@@ -57,9 +57,9 @@ function extractTitleComponents(title) {
 function calculateStringSimilarity(str1, str2) {
   const norm1 = normalizeString(str1);
   const norm2 = normalizeString(str2);
-  
+
   if (norm1 === norm2) return 100;
-  
+
   // Levenshtein distance
   const levenshteinDistance = (s1, s2) => {
     const matrix = [];
@@ -84,26 +84,26 @@ function calculateStringSimilarity(str1, str2) {
     }
     return matrix[s2.length][s1.length];
   };
-  
+
   const distance = levenshteinDistance(norm1, norm2);
   const maxLen = Math.max(norm1.length, norm2.length);
   const similarity = maxLen === 0 ? 100 : ((maxLen - distance) / maxLen) * 100;
-  
+
   return Math.max(0, similarity);
 }
 
 function calculateKeywordMatch(text, keywords) {
   const normText = normalizeString(text);
   const normKeywords = normalizeString(keywords);
-  
+
   if (!normKeywords) return 0;
-  
+
   const keywordsList = normKeywords.split(/\s+/);
   let matchScore = 0;
-  
+
   for (const keyword of keywordsList) {
     if (keyword.length < 2) continue;
-    
+
     if (normText.includes(keyword)) {
       // Dodatkowe punkty za dokładne dopasowanie całego słowa
       const wordBoundaryRegex = new RegExp(`\\b${keyword}\\b`, 'i');
@@ -114,81 +114,79 @@ function calculateKeywordMatch(text, keywords) {
       }
     }
   }
-  
+
   return Math.min(matchScore, 100);
 }
 
 function calculateMatchScore(book, query, author) {
-  let score = 0;
-  const normQuery = normalizeString(query);
-  const normAuthor = author ? normalizeString(author) : '';
-  const normTitle = normalizeString(book.cleanTitle || book.title);
-  const normBookAuthors = book.authors.map(a => normalizeString(a));
-  
-  // 1. Podobieństwo tytułu - zwiększona waga (50%)
-  const titleSimilarity = calculateStringSimilarity(normTitle, normQuery);
-  score += titleSimilarity * 0.5;
-  
-  // 2. Dopasowanie słów kluczowych w tytule - zmniejszona waga (25%)
-  const keywordMatch = calculateKeywordMatch(normTitle, normQuery);
-  score += keywordMatch * 0.25;
-  
-  // 3. Dopasowanie autora - zwiększona waga (25%)
-  if (normAuthor) {
-    let authorScore = 0;
-    for (const bookAuthor of normBookAuthors) {
-      const authorSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
-      authorScore = Math.max(authorScore, authorSimilarity);
+    const normQuery = normalizeString(query);
+    const normAuthor = author ? normalizeString(author) : '';
+    const normTitle = normalizeString(book.cleanTitle || book.title);
+    const normBookAuthors = book.authors.map(a => normalizeString(a));
+
+    const titleSimilarity = calculateStringSimilarity(normTitle, normQuery);
+    
+    // --- Weryfikacja autora ---
+    let authorSimilarity = 0;
+    let authorBonus = 0;
+
+    if (normAuthor) {
+        for (const bookAuthor of normBookAuthors) {
+            const currentSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
+            authorSimilarity = Math.max(authorSimilarity, currentSimilarity);
+        }
+        
+        // Jeśli autor został podany, MUSI pasować z wysokim progiem podobieństwa.
+        // W przeciwnym razie wynik jest nieważny.
+        if (authorSimilarity < 75) {
+            return 0; // Natychmiastowe zdyskwalifikowanie wyniku.
+        }
+        // Jeśli autor pasuje bardzo dobrze, przygotuj duży bonus.
+        if (authorSimilarity >= 95) {
+            authorBonus = 100;
+        }
     }
-    score += authorScore * 0.25;
-  }
-  
-  // 4. Zwiększone kary za słabe dopasowanie
-  if (titleSimilarity < 80 && keywordMatch < 50) {
-    score *= 0.3; // Bardzo duża kara za słabe dopasowanie
-  }
-  
-  // 5. Dokładne dopasowanie - większy bonus
-  if (normTitle === normQuery) {
-    score += 100; // Zwiększony bonus za dokładne dopasowanie
-  }
-  
-  // 6. Dopasowanie początku tytułu - większy bonus
-  if (normTitle.startsWith(normQuery) || normQuery.startsWith(normTitle)) {
-    score += 50; // Zwiększony bonus
-  }
-  
-  // 7. Nowy bonus za bardzo wysokie podobieństwo tytułu
-  if (titleSimilarity >= 95) {
-    score += 75; // Bonus za niemal identyczny tytuł
-  }
-  
-  // 8. Bonus za bardzo wysokie dopasowanie autora
-  if (normAuthor && normBookAuthors.some(bookAuthor => {
-    const authorSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
-    return authorSimilarity >= 95;
-  })) {
-    score += 50; // Bonus za niemal identycznego autora
-  }
-  
-  // 9. Kara za zbyt krótkie zapytanie (może być nieprecyzyjne)
-  if (normQuery.length < 3) {
-    score *= 0.5;
-  }
-  
-  // 10. Bonus za dopasowanie wszystkich słów z zapytania
-  const queryWords = normQuery.split(/\s+/).filter(word => word.length > 2);
-  const titleWords = normTitle.split(/\s+/);
-  const matchedWords = queryWords.filter(queryWord => 
-    titleWords.some(titleWord => titleWord.includes(queryWord) || queryWord.includes(titleWord))
-  );
-  
-  if (queryWords.length > 0 && matchedWords.length === queryWords.length) {
-    score += 40; // Bonus za dopasowanie wszystkich słów
-  }
-  
-  return Math.min(score, 300); // Zwiększony maksymalny wynik do 300
+
+    // --- Logika oceny ---
+    let score = 0;
+    
+    // 1. Wynik podstawowy (nowe wagi)
+    // Podstawą jest podobieństwo tytułu (60%) oraz autora (40%)
+    score += titleSimilarity * 0.6;
+    score += authorSimilarity * 0.4;
+
+    // 2. Bonusy za wyjątkowe dopasowania
+    score += authorBonus; // Dodaj bonus za idealnego autora
+    
+    // Bonus za idealnie dopasowany tytuł
+    if (normTitle === normQuery) {
+        score += 80;
+    }
+    
+    // Mniejszy bonus za bardzo wysokie podobieństwo tytułu
+    if (titleSimilarity > 95) {
+        score += 40;
+    }
+
+    // Bonus za dopasowanie wszystkich słów kluczowych z zapytania w tytule
+    const queryWords = normQuery.split(/\s+/).filter(word => word.length > 2);
+    const titleWords = normTitle.split(/\s+/);
+    const matchedWords = queryWords.filter(queryWord => 
+        titleWords.some(titleWord => titleWord.includes(queryWord) || queryWord.includes(titleWord))
+    );
+
+    if (queryWords.length > 0 && matchedWords.length === queryWords.length) {
+        score += 20;
+    }
+
+    // Kara za zbyt krótkie zapytanie
+    if (normQuery.length < 3) {
+      score *= 0.5;
+    }
+
+    return Math.min(score, 300);
 }
+
 
 const app = express();
 const port = process.env.PORT || 3001;
@@ -288,10 +286,10 @@ class AudiotekaProvider {
       // Extract description
       let description = '';
       const descriptionElement = $('.description_description__6gcfq');
-      
+
       if (descriptionElement.length > 0) {
         description = descriptionElement.html() || descriptionElement.text().trim();
-        
+
         if (description && !description.includes('<')) {
           description = description.replace(/\n\s*\n/g, '\n\n').trim();
         }
@@ -300,8 +298,8 @@ class AudiotekaProvider {
       // Add Audioteka link if enabled
       if (addAudiotekaLinkToDescription) {
         const audioTekaLink = `<a href="${match.url}">Audioteka link</a>`;
-        description = description ? 
-          `${audioTekaLink}\n\n${description}` : 
+        description = description ?
+          `${audioTekaLink}\n\n${description}` :
           audioTekaLink;
       }
 
@@ -362,7 +360,7 @@ app.get('/search', async (req, res) => {
       hasMore = more;
       currentPage++;
       pageCount++;
-      
+
       if (matches.length === 0) break; // Przerwij jeśli nie ma więcej wyników
     }
 
@@ -377,7 +375,7 @@ app.get('/search', async (req, res) => {
       };
       const bookWithComponents = { ...book, ...components };
       const score = calculateMatchScore(bookWithComponents, query, author);
-      
+
       return {
         ...bookWithComponents,
         score
@@ -392,14 +390,15 @@ app.get('/search', async (req, res) => {
         return match.score > 20; // Stare kryterium jako fallback
       }
     });
-    
+
     console.log(`After filtering (min score: ${MIN_SCORE_THRESHOLD}): ${filteredMatches.length} matches`);
 
     if (filteredMatches.length === 0) {
-      console.log('No matches found with high enough score. Top 5 scores:', 
-        scoredMatches.slice(0, 5).map(r => ({ 
-          title: r.cleanTitle, 
-          score: r.score.toFixed(2) 
+      console.log('No matches found with high enough score. Top 5 scores:',
+        scoredMatches.slice(0, 5).map(r => ({
+          title: r.cleanTitle,
+          author: r.authors.join(', '),
+          score: r.score.toFixed(2)
         }))
       );
     }
@@ -418,9 +417,10 @@ app.get('/search', async (req, res) => {
 
     console.log(`Returning ${sortedResults.length} high-quality results`);
     if (sortedResults.length > 0) {
-      console.log('Top 3 scores:', sortedResults.slice(0, 3).map(r => ({ 
-        title: r.cleanTitle, 
-        score: r.score.toFixed(2) 
+      console.log('Top 3 scores:', sortedResults.slice(0, 3).map(r => ({
+        title: r.cleanTitle,
+        author: r.authors.join(', '),
+        score: r.score.toFixed(2)
       })));
     }
 
