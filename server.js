@@ -41,16 +41,50 @@ function normalizeString(str) {
 }
 
 function extractTitleComponents(title) {
-  const pattern = /^(.*?)\s+-\s+(.*?)\s*\((\d{4})\)\s*\[audiobook PL\]$/i;
-  const match = title.match(pattern);
+  // Pattern 1: standard format "Author - Title (YYYY) [audiobook PL] Extra"
+  const patternWithYear = /^(.*?)\s+-\s+(.*?)\s*\((\d{4})\)(?:\s*\[audiobook PL\])?(.*)$/i;
+  let match = title.match(patternWithYear);
+
+  if (match) {
+    let cleanTitle = match[2];
+    if (match[4] && match[4].trim()) {
+      cleanTitle += ' ' + match[4].trim();
+    }
+    return {
+      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
+      cleanTitle: cleanTitle.trim(),
+      year: parseInt(match[3], 10)
+    };
+  }
+
+  // Pattern 2: format without year "Author - Title [audiobook PL] Extra"
+  const patternWithoutYear = /^(.*?)\s+-\s+(.*?)\s*\[audiobook PL\](.*)$/i;
+  match = title.match(patternWithoutYear);
+
+  if (match) {
+    let cleanTitle = match[2];
+    if (match[3] && match[3].trim()) {
+      cleanTitle += ' ' + match[3].trim();
+    }
+    return {
+      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
+      cleanTitle: cleanTitle.trim(),
+      year: undefined
+    };
+  }
+
+  // Pattern 3: generic fallback "Author - rest"
+  const patternGeneric = /^(.*?)\s+-\s+(.*)$/;
+  match = title.match(patternGeneric);
 
   if (match) {
     return {
       authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
-      cleanTitle: match[2],
-      year: parseInt(match[3], 10)
+      cleanTitle: match[2].trim(),
+      year: undefined
     };
   }
+
   return null;
 }
 
