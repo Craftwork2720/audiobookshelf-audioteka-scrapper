@@ -380,7 +380,20 @@ app.get('/search', async (req, res) => {
     const { query, author = '', page = 1 } = req.query;
     if (!query) return res.status(400).json({ error: 'Query parameter is required' });
 
-    console.log(`Searching for: "${query}" by "${author}" (strict matching: ${STRICT_MATCHING}, min score: ${MIN_SCORE_THRESHOLD})`);
+    // Parse query to extract author and clean title if author is not explicitly provided
+    let effectiveQuery = query;
+    let effectiveAuthor = author;
+
+    if (!author) {
+      const parsedQuery = extractTitleComponents(query);
+      if (parsedQuery) {
+        effectiveAuthor = parsedQuery.authors.join(' ');
+        effectiveQuery = parsedQuery.cleanTitle;
+        console.log(`Parsed query: author="${effectiveAuthor}", title="${effectiveQuery}"`);
+      }
+    }
+
+    console.log(`Searching for: "${effectiveQuery}" by "${effectiveAuthor}" (original query: "${query}", strict matching: ${STRICT_MATCHING}, min score: ${MIN_SCORE_THRESHOLD})`);
 
     // Search across multiple pages
     let allMatches = [];
@@ -389,7 +402,7 @@ app.get('/search', async (req, res) => {
     let pageCount = 0;
 
     while (hasMore && allMatches.length < MAX_RESULTS * 2 && pageCount < 5) {
-      const { matches, hasMore: more } = await provider.searchBooks(query, author, currentPage);
+      const { matches, hasMore: more } = await provider.searchBooks(effectiveQuery, effectiveAuthor, currentPage);
       allMatches = [...allMatches, ...matches];
       hasMore = more;
       currentPage++;
@@ -408,7 +421,7 @@ app.get('/search', async (req, res) => {
         year: new Date().getFullYear()
       };
       const bookWithComponents = { ...book, ...components };
-      const score = calculateMatchScore(bookWithComponents, query, author);
+      const score = calculateMatchScore(bookWithComponents, effectiveQuery, effectiveAuthor);
 
       return {
         ...bookWithComponents,
@@ -480,7 +493,9 @@ app.get('/search', async (req, res) => {
         afterFiltering: filteredMatches.length,
         returned: sortedResults.length,
         minScoreThreshold: MIN_SCORE_THRESHOLD,
-        strictMatching: STRICT_MATCHING
+        strictMatching: STRICT_MATCHING,
+        effectiveQuery: effectiveQuery !== query ? effectiveQuery : undefined,
+        effectiveAuthor: effectiveAuthor !== author ? effectiveAuthor : undefined
       }
     });
   } catch (error) {
