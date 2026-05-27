@@ -40,47 +40,100 @@ function normalizeString(str) {
     .trim();
 }
 
+function cleanSearchQuery(query) {
+  let cleaned = query;
+
+  // Strip leading uploader/group tag like [nicollubin]
+  cleaned = cleaned.replace(/^\[.*?\]\s*/, '');
+
+  // Fix bracket typos: [audiobook PL} -> [audiobook PL]
+  cleaned = cleaned.replace(/\[audiobook\s+PL\}/gi, '[audiobook PL]');
+
+  // Strip narrator "czyta X" / "czyta X Y"
+  cleaned = cleaned.replace(/\s+czyta\s+[\w.]+(?:\s+[\w.]+)?/gi, '');
+
+  // Strip trailing production tags
+  cleaned = cleaned.replace(/\s+(?:Superprodukcja|SUPERPRODUKCJA)\s*$/g, '');
+
+  // Strip trailing "+[ebook PL] [epub mobi pdf azw3]" format blocks
+  cleaned = cleaned.replace(/\s*\+\[ebook[^\]]*\]\s*(?:\[[a-z0-9\s]+\]\s*)*$/gi, '');
+
+  // Remove zero-width characters
+  cleaned = cleaned.replace(/[\u200b-\u200d\ufeff]/g, '');
+
+  return cleaned.trim();
+}
+
+function cleanTitleText(title) {
+  return title
+    .replace(/\s*\(Wersja autorska\)/gi, '')
+    .replace(/\s+Tom\s+\d+(?:\s*i\s*\d+)?/gi, '')
+    .replace(/\s+tom\s+\d+(?:-\d+)?/gi, '')
+    .replace(/\s+cykl\s+o\s+\w+(?:\s+tom\s+\d+(?:-\d+)?)?/gi, '')
+    .replace(/\s+SUPERPRODUKCJA\s*$/gi, '')
+    .replace(/\s+Superprodukcja\s*$/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
 function extractTitleComponents(title) {
+  const cleaned = cleanSearchQuery(title);
+
+  function splitAuthors(authorStr) {
+    return authorStr
+      .split(/\s*,\s*|\s+i\s+|\s+oraz\s+/i)
+      .map(a => a.trim())
+      .filter(a => a && a.toLowerCase() !== 'inni');
+  }
+
+  function shouldAppendExtra(extra) {
+    const trimmed = extra.trim();
+    if (!trimmed) return false;
+    if (/^\[.*\]$/.test(trimmed)) return false;
+    if (/^(?:superprodukcja|audiobook)/i.test(trimmed)) return false;
+    return true;
+  }
+
   // Pattern 1: standard format "Author - Title (YYYY) [audiobook PL] Extra"
   const patternWithYear = /^(.*?)\s+-\s+(.*?)\s*\((\d{4})\)(?:\s*\[audiobook PL\])?(.*)$/i;
-  let match = title.match(patternWithYear);
+  let match = cleaned.match(patternWithYear);
 
   if (match) {
     let cleanTitle = match[2];
-    if (match[4] && match[4].trim()) {
+    if (match[4] && shouldAppendExtra(match[4])) {
       cleanTitle += ' ' + match[4].trim();
     }
     return {
-      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
-      cleanTitle: cleanTitle.trim(),
+      authors: splitAuthors(match[1]),
+      cleanTitle: cleanTitleText(cleanTitle),
       year: parseInt(match[3], 10)
     };
   }
 
   // Pattern 2: format without year "Author - Title [audiobook PL] Extra"
   const patternWithoutYear = /^(.*?)\s+-\s+(.*?)\s*\[audiobook PL\](.*)$/i;
-  match = title.match(patternWithoutYear);
+  match = cleaned.match(patternWithoutYear);
 
   if (match) {
     let cleanTitle = match[2];
-    if (match[3] && match[3].trim()) {
+    if (match[3] && shouldAppendExtra(match[3])) {
       cleanTitle += ' ' + match[3].trim();
     }
     return {
-      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
-      cleanTitle: cleanTitle.trim(),
+      authors: splitAuthors(match[1]),
+      cleanTitle: cleanTitleText(cleanTitle),
       year: undefined
     };
   }
 
   // Pattern 3: generic fallback "Author - rest"
   const patternGeneric = /^(.*?)\s+-\s+(.*)$/;
-  match = title.match(patternGeneric);
+  match = cleaned.match(patternGeneric);
 
   if (match) {
     return {
-      authors: match[1].split(/\s*,\s*|\s*i\s+|\s+oraz\s+/i),
-      cleanTitle: match[2].trim(),
+      authors: splitAuthors(match[1]),
+      cleanTitle: cleanTitleText(match[2]),
       year: undefined
     };
   }
@@ -152,24 +205,44 @@ function calculateKeywordMatch(text, keywords) {
   return Math.min(matchScore, 100);
 }
 
-function calculateMatchScore(book, query, author) {
+function calculateMatchScore(book, query, author, queryAuthors = null) {
     const normQuery = normalizeString(query);
     const normAuthor = author ? normalizeString(author) : '';
     const normTitle = normalizeString(book.cleanTitle || book.title);
     const normBookAuthors = book.authors.map(a => normalizeString(a));
 
     const titleSimilarity = calculateStringSimilarity(normTitle, normQuery);
-    
+
     // --- Weryfikacja autora ---
     let authorSimilarity = 0;
     let authorBonus = 0;
 
     if (normAuthor) {
-        for (const bookAuthor of normBookAuthors) {
-            const currentSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
-            authorSimilarity = Math.max(authorSimilarity, currentSimilarity);
+        if (queryAuthors && queryAuthors.length > 0) {
+            // Per-author matching: find best book-author match for each query author, then average
+            const authorScores = queryAuthors.map(qAuthor => {
+                const normQAuthor = normalizeString(qAuthor);
+                let bestScore = 0;
+                for (const bookAuthor of normBookAuthors) {
+                    // Standard string similarity
+                    const sim = calculateStringSimilarity(bookAuthor, normQAuthor);
+                    bestScore = Math.max(bestScore, sim);
+                    // If query author is fully contained in book author, boost score
+                    // (handles cases like "Małgorzata" matching "Małgorzata Fugiel-Kuźmińska")
+                    if (normQAuthor.length > 3 && bookAuthor.includes(normQAuthor)) {
+                        bestScore = Math.max(bestScore, 85);
+                    }
+                }
+                return bestScore;
+            });
+            authorSimilarity = authorScores.reduce((a, b) => a + b, 0) / authorScores.length;
+        } else {
+            for (const bookAuthor of normBookAuthors) {
+                const currentSimilarity = calculateStringSimilarity(bookAuthor, normAuthor);
+                authorSimilarity = Math.max(authorSimilarity, currentSimilarity);
+            }
         }
-        
+
         // Jeśli autor został podany, MUSI pasować z wysokim progiem podobieństwa.
         // W przeciwnym razie wynik jest nieważny.
         if (authorSimilarity < 75) {
@@ -269,7 +342,11 @@ class AudiotekaProvider {
         const $book = $(element);
         const title = $book.find('.teaser_title__hDeCG').text().trim();
         const bookUrl = this.baseUrl + $book.find('.teaser_link__fxVFQ').attr('href');
-        const authors = [$book.find('.teaser_author__LWTRi').text().trim()];
+        const authorText = $book.find('.teaser_author__LWTRi').text().trim();
+        const authors = authorText
+          .split(/\s*,\s*|\s+i\s+|\s+oraz\s+/i)
+          .map(a => a.trim())
+          .filter(a => a);
         const cover = cleanCoverUrl($book.find('.teaser_coverImage__YMrBt').attr('src'));
         const rating = parseFloat($book.find('.teaser-footer_rating__TeVOA').text().trim()) || null;
         const id = $book.attr('data-item-id') || bookUrl.split('/').pop();
@@ -383,11 +460,13 @@ app.get('/search', async (req, res) => {
     // Parse query to extract author and clean title if author is not explicitly provided
     let effectiveQuery = query;
     let effectiveAuthor = author;
+    let effectiveAuthors = [];
 
     if (!author) {
       const parsedQuery = extractTitleComponents(query);
       if (parsedQuery) {
         effectiveAuthor = parsedQuery.authors.join(' ');
+        effectiveAuthors = parsedQuery.authors;
         effectiveQuery = parsedQuery.cleanTitle;
         console.log(`Parsed query: author="${effectiveAuthor}", title="${effectiveQuery}"`);
       }
@@ -421,7 +500,7 @@ app.get('/search', async (req, res) => {
         year: new Date().getFullYear()
       };
       const bookWithComponents = { ...book, ...components };
-      const score = calculateMatchScore(bookWithComponents, effectiveQuery, effectiveAuthor);
+      const score = calculateMatchScore(bookWithComponents, effectiveQuery, effectiveAuthor, effectiveAuthors);
 
       return {
         ...bookWithComponents,
